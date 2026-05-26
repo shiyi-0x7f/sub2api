@@ -1,19 +1,17 @@
 # =============================================================================
 # Sub2API Docker Compose - 服务器部署版
 # =============================================================================
-# PostgreSQL 由 Docker 管理，Redis 使用宝塔自带的
-# 使用方式:
-#   1. 创建 .env 文件配置密码
-#   2. docker compose up -d
-#   3. 访问: http://服务器IP:54371
+# sub2api 使用 host 网络模式，直接访问宝塔自带的 Redis
+# PostgreSQL 由 Docker 管理
 # =============================================================================
 
 services:
-  # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
     container_name: sub2api-postgres
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     environment:
@@ -27,39 +25,33 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    networks:
-      - sub2api-net
 
-  # Sub2API 应用
   sub2api:
     image: weishaw/sub2api:latest
     container_name: sub2api
     restart: unless-stopped
-    ports:
-      - "54371:8080"
+    network_mode: host
     volumes:
       - ./sub2api-data:/app/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=8080
+      - SERVER_PORT=54371
       - SERVER_MODE=release
 
-      # PostgreSQL (Docker 内部)
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
+      # PostgreSQL (通过宿主机 127.0.0.1:5433 访问)
+      - DATABASE_HOST=127.0.0.1
+      - DATABASE_PORT=5433
       - DATABASE_USER=sub2api
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-sub2api}
       - DATABASE_DBNAME=sub2api
       - DATABASE_SSLMODE=disable
 
-      # Redis (宝塔自带，通过 host.docker.internal 访问宿主机)
-      - REDIS_HOST=host.docker.internal
+      # Redis (宝塔自带)
+      - REDIS_HOST=127.0.0.1
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - REDIS_DB=0
+      - REDIS_DB=13
       - REDIS_ENABLE_TLS=false
 
       # JWT & Admin
@@ -72,15 +64,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - sub2api-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:54371/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-
-networks:
-  sub2api-net:
-    driver: bridge
